@@ -26,7 +26,7 @@ async def crawl_endpoint(
 
 
 @app.get("/crawl/deep")
-async def crawl_endpoint(
+async def deep_crawl_endpoint(
     url: str = Query(..., description="Target URL"),
     max_pages: int = Query(10, description="Maximum pages to crawl"),
     filter_patterns: Optional[List[str]] = Query(
