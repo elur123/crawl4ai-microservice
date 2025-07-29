@@ -103,7 +103,8 @@ def extract_basic_info(content):
     email = email_phone.get("email")
     phone = email_phone.get("phone")
     address = contact_info.get("address")
-    logo = tree.xpath('//img[contains(@src, "logo")]/@src')
+    # logo = tree.xpath('//img[contains(@src, "logo")]/@src')
+    logo = tree.xpath('//img[contains(translate(@src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "logo")]/@src')
     title = tree.xpath('//title/text()')
     fonts = fonts_colors.get("fonts")
     colors = fonts_colors.get("colors")
@@ -113,7 +114,7 @@ def extract_basic_info(content):
         "email": email if email else None,
         "phone": phone if phone else None,
         "address": extract_address_details(address[0]) if address else "",
-        "logo": logo[0] if logo else "",
+        "logo": logo[0] if logo else None,
         "fonts": fonts,
         "colors": colors
     }
