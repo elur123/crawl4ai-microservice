@@ -1,5 +1,6 @@
 import re
 import ast
+import json
 from lxml import html
 
 def extract_image_attribute(image: dict, desc_block: str) -> dict:
@@ -87,24 +88,34 @@ def extract_repeated_sections(raw_html):
 
     return flat_services
 
-def extract_basic_info(raw_html):
+def extract_basic_info(content):
+    raw_html = content.html
+    extracted_content = content.extracted_content
+    console_messages = content.console_messages
+
     tree = html.fromstring(raw_html)
     text = tree.text_content()
 
     contact_info = extract_contact_info(raw_html)
+    email_phone = extract_email_tel_from_extracted(extracted_content)
+    fonts_colors = extact_fonts_colors_from_console(console_messages)
 
-    email = contact_info.get("email")
-    phone = contact_info.get("phone")
+    email = email_phone.get("email")
+    phone = email_phone.get("phone")
     address = contact_info.get("address")
     logo = tree.xpath('//img[contains(@src, "logo")]/@src')
     title = tree.xpath('//title/text()')
+    fonts = fonts_colors.get("fonts")
+    colors = fonts_colors.get("colors")
     
     return {
         "name": title[0].strip() if title else "",
-        "email": email[0] if email else "",
-        "phone": ''.join(phone[0]) if phone else "",
-        "address": address[0] if address else "",
+        "email": email if email else None,
+        "phone": phone if phone else None,
+        "address": extract_address_details(address[0]) if address else "",
         "logo": logo[0] if logo else "",
+        "fonts": fonts,
+        "colors": colors
     }
 
 def extract_contact_info(raw_html):
@@ -141,6 +152,31 @@ def extract_contact_info(raw_html):
         "address": list(set(address_matches))
     }
 
+def extract_address_details(address):
+    full_address = None
+    street_address = None
+    city = None
+    state = None
+    zip_code = None
+
+    if address:
+        pattern = r'^(.*?),?\s+([\w\s]+),?\s+([A-Z]{2})\s+(\d{5})$'
+        match = re.match(pattern, address)
+
+        if match:
+            street_address = match.group(1).strip()
+            city = match.group(2).strip()
+            state = match.group(3)
+            zip_code = match.group(4)
+
+    return {
+        "full_address": address,
+        "street_address": street_address,
+        "city": city,
+        "state": state,
+        "zip_code": zip_code
+    }
+
 def extact_fonts_colors_from_console(console_messages):
     def dedup(seq):
         seen = set()
@@ -168,6 +204,20 @@ def extact_fonts_colors_from_console(console_messages):
     return {
         "fonts": dedup(fonts),
         "colors": dedup(colors)
+    }
+
+def extract_email_tel_from_extracted(extracted_content):
+    email = None
+    tel = None
+
+    data = json.loads(extracted_content)
+
+    email = next((item["value"] for item in data if item.get("label") == "email"), None)
+    phone = next((item["value"] for item in data if item.get("label") == "phone_us"), None)
+
+    return {
+        "email": email,
+        "phone": phone
     }
 
 def js_fonts_colors_extractor():

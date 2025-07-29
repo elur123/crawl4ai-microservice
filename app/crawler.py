@@ -1,4 +1,4 @@
-from crawl4ai import AsyncWebCrawler
+from crawl4ai import AsyncWebCrawler, RegexExtractionStrategy
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy, BFSDeepCrawlStrategy
@@ -15,8 +15,7 @@ from app.helper import (
     split_desc_blocks, 
     extract_repeated_sections, 
     extract_basic_info,
-    js_fonts_colors_extractor,
-    extact_fonts_colors_from_console
+    js_fonts_colors_extractor
 )
 
 async def handle_crawl(url: str):
@@ -49,6 +48,13 @@ async def handle_deep_crawl(url: str, max_pages: int, url_filter: List[str]):
         weight=0.7
     )
 
+    strategy = RegexExtractionStrategy(
+        pattern = (
+            RegexExtractionStrategy.Email |
+            RegexExtractionStrategy.PhoneUS
+        )
+    )
+
     config = CrawlerRunConfig(
         deep_crawl_strategy=BestFirstCrawlingStrategy(
             max_depth=3,
@@ -59,6 +65,7 @@ async def handle_deep_crawl(url: str, max_pages: int, url_filter: List[str]):
         ),
         exclude_external_links=True,
         scraping_strategy=LXMLWebScrapingStrategy(),
+        extraction_strategy=strategy,
         js_code=js_fonts_colors_extractor(),
         capture_console_messages=True,
         stream=True,
@@ -77,14 +84,11 @@ async def handle_deep_crawl(url: str, max_pages: int, url_filter: List[str]):
     for index, result in enumerate(results):
         if index == 0:
             content = result._results[0] if result._results else None
-            fonts_colors = extact_fonts_colors_from_console(content.console_messages)
+            basicInfo = extract_basic_info(content)
             page_content = {
                 "url": content.url,
                 "html": content.html,
-                "basicInfo": {
-                    "fonts": fonts_colors.get("fonts"),
-                    "colors": fonts_colors.get("colors")
-                }
+                "basicInfo": basicInfo
             }
             # page_content = content
             continue
