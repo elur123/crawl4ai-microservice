@@ -14,12 +14,21 @@ from app.helper import (
     extract_image_attribute, 
     split_desc_blocks, 
     extract_repeated_sections, 
-    extract_basic_info
+    extract_basic_info,
+    js_fonts_colors_extractor,
+    extact_fonts_colors_from_console
 )
 
 async def handle_crawl(url: str):
+    js_font_extractor = js_fonts_colors_extractor()
+
     browser_config = BrowserConfig()
-    run_config = CrawlerRunConfig()
+    run_config = CrawlerRunConfig(
+        js_code=js_font_extractor,
+        # delay_before_return_html=2.5,
+        capture_console_messages=True,
+        # capture_network_requests=True
+    )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         result = await crawler.arun(
@@ -50,6 +59,8 @@ async def handle_deep_crawl(url: str, max_pages: int, url_filter: List[str]):
         ),
         exclude_external_links=True,
         scraping_strategy=LXMLWebScrapingStrategy(),
+        js_code=js_fonts_colors_extractor(),
+        capture_console_messages=True,
         stream=True,
         verbose=True
     )
@@ -66,11 +77,16 @@ async def handle_deep_crawl(url: str, max_pages: int, url_filter: List[str]):
     for index, result in enumerate(results):
         if index == 0:
             content = result._results[0] if result._results else None
-            # page_content = {
-            #     "url": content.url,
-            #     "info": extract_basic_info(content.html)
-            # }
-            page_content = content
+            fonts_colors = extact_fonts_colors_from_console(content.console_messages)
+            page_content = {
+                "url": content.url,
+                "html": content.html,
+                "basicInfo": {
+                    "fonts": fonts_colors.get("fonts"),
+                    "colors": fonts_colors.get("colors")
+                }
+            }
+            # page_content = content
             continue
 
         if len(result._results):

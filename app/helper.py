@@ -1,4 +1,5 @@
 import re
+import ast
 from lxml import html
 
 def extract_image_attribute(image: dict, desc_block: str) -> dict:
@@ -97,17 +98,13 @@ def extract_basic_info(raw_html):
     address = contact_info.get("address")
     logo = tree.xpath('//img[contains(@src, "logo")]/@src')
     title = tree.xpath('//title/text()')
-    fonts = tree.xpath('//link[contains(@href, "fonts")]/@href')
-    colors = extract_brand_colors(raw_html)
-
+    
     return {
         "name": title[0].strip() if title else "",
         "email": email[0] if email else "",
         "phone": ''.join(phone[0]) if phone else "",
         "address": address[0] if address else "",
         "logo": logo[0] if logo else "",
-        "fonts": fonts,
-        "colors": colors
     }
 
 def extract_contact_info(raw_html):
@@ -144,19 +141,87 @@ def extract_contact_info(raw_html):
         "address": list(set(address_matches))
     }
 
-def extract_brand_colors(raw_html):
-    tree = html.fromstring(raw_html)
+def extact_fonts_colors_from_console(console_messages):
+    def dedup(seq):
+        seen = set()
+        return [x for x in seq if not (x in seen or seen.add(x))]
 
-    # Collect inline styles and internal <style> blocks
-    inline_styles = tree.xpath('//*[@style]/@style')
-    style_blocks = tree.xpath('//style/text()')
+    fonts = []
+    colors = []
+    info_filtered = [item for item in console_messages if item.get("type") == "info"]
+    
+    for item in info_filtered:
+        text = item["text"]
 
-    all_styles = inline_styles + style_blocks
+        match = re.search(r'\[([^\]]+)\]', text)
+        if not match:
+            continue
+        
+        # Split values by comma and clean up
+        values = [v.strip().strip('"') for v in match.group(1).split(',')]
 
-    # Combine and search for hex color codes
-    css_text = "\n".join(all_styles)
-    hex_colors = re.findall(r'#[0-9a-fA-F]{3,6}', css_text)
+        if text.startswith("fonts"):
+            fonts.extend(values)
+        elif text.startswith("colors"):
+            colors.extend(values)
 
-    # Deduplicate and return
-    unique_colors = list(set(hex_colors))
-    return unique_colors
+    return {
+        "fonts": dedup(fonts),
+        "colors": dedup(colors)
+    }
+
+def js_fonts_colors_extractor():
+    return """function extractFont() {
+        const fonts = new Set();
+
+        document.querySelectorAll('*').forEach(el => {
+            const font = window.getComputedStyle(el).getPropertyValue('font-family');
+            if (font) fonts.add(font.trim());
+        });
+
+        console.info("fonts", [...fonts]);
+        return fonts;
+    } 
+
+    function extractColors(minCount = 20) {
+        const rgbToHex = (rgb) => {
+            const match = rgb.match(/\d+/g);
+            if (!match || match.length < 3) return null;
+
+            return (
+                '#' +
+                match.slice(0, 3)
+                    .map(x => parseInt(x).toString(16).padStart(2, '0'))
+                    .join('')
+                    .toUpperCase()
+            );
+        };
+
+        const elements = document.querySelectorAll('*');
+        const colorCount = {};
+
+        elements.forEach(el => {
+            const style = window.getComputedStyle(el);
+            ['color', 'backgroundColor', 'borderColor'].forEach(prop => {
+                const rgb = style[prop];
+                if (rgb && rgb.startsWith('rgb')) {
+                    const hex = rgbToHex(rgb);
+                    if (hex) {
+                        colorCount[hex] = (colorCount[hex] || 0) + 1;
+                    }
+                }
+            });
+        });
+
+        const colors =  Object.entries(colorCount)
+            .filter(([, count]) => count > minCount)
+            .sort((a, b) => b[1] - a[1])
+            .map(([hex, count]) => hex);
+
+        console.info("colors", colors);
+        return colors;
+    }
+    
+    extractFont();
+    extractColors();
+    """
