@@ -6,6 +6,13 @@ from typing import List, Optional
 
 app = FastAPI()
 
+@app.get("/")
+def health_check():
+    return {
+        "status": "ok",
+        "message": "Health check successful"
+    }
+
 @app.get("/crawl")
 async def crawl_endpoint(
     url: str = Query(..., description="Target URL")
