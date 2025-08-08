@@ -64,7 +64,13 @@ def extract_repeated_sections(raw_html):
                     )
                     title = heading[0].text_content().strip() if heading else ""
 
-                    if "\n" not in title:
+                    if (
+                        img_src
+                        and not img_src.endswith(".svg")
+                        and "\n" not in title
+                        and title != text
+                    ):
+
                         blocks.append({
                             "img_src": img_src,
                             "title": title,
@@ -103,8 +109,12 @@ def extract_basic_info(content):
     email = email_phone.get("email")
     phone = email_phone.get("phone")
     address = contact_info.get("address")
-    # logo = tree.xpath('//img[contains(@src, "logo")]/@src')
-    logo = tree.xpath('//img[contains(translate(@src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "logo")]/@src')
+    logo = tree.xpath(
+        '//img['
+            'contains(translate(@src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "logo") or '
+            'contains(translate(@class, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "logo")'
+        ']/@src'
+    )
     title = tree.xpath('//title/text()')
     fonts = fonts_colors.get("fonts")
     colors = fonts_colors.get("colors")
@@ -113,7 +123,7 @@ def extract_basic_info(content):
         "name": title[0].strip() if title else "",
         "email": email if email else None,
         "phone": phone if phone else None,
-        "address": extract_address_details(address[0]) if address else "",
+        "address": extract_address_details(address[0]) if address else None,
         "logo": logo[0] if logo else None,
         "fonts": fonts,
         "colors": colors
@@ -123,60 +133,126 @@ def extract_contact_info(raw_html):
     tree = html.fromstring(raw_html)
 
     # Extract text from <footer> and nearby elements
-    footer = tree.xpath('//footer')
-    footer_text = ""
-    if footer:
-        footer_text = footer[0].text_content()
-    else:
-        # Fallback: last few <div>s or body bottom (heuristic)
-        last_divs = tree.xpath('//div[position() > last()-3]')
-        footer_text = " ".join(div.text_content() for div in last_divs)
+    # footer = tree.xpath('//footer')
+    # footer_text = ""
+    # if footer:
+    #     footer_text = footer[0].text_content()
+    # else:
+    #     # Fallback: last few <div>s or body bottom (heuristic)
+    #     last_divs = tree.xpath('//div[position() > last()-3]')
+    #     footer_text = " ".join(div.text_content() for div in last_divs)
 
-    # Normalize text
-    text = re.sub(r'\s+', ' ', footer_text)
+    # # Normalize text
+    # text = re.sub(r'\s+', ' ', footer_text)
+
+    # # Extract email
+    # emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+
+    # # Extract phone (simplified)
+    # phones = re.findall(r'(\+?\d[\d\s\-\(\)]{7,}\d)', text)
+
+    # # Extract address (very fuzzy heuristic)
+    # address_matches = re.findall(
+    #     r'''
+    #     \d{1,6}                                       # Street number
+    #     \s+[A-Za-z0-9\s\.,\-#]+?                      # Street name + optional suite
+    #     (?:,\s*[A-Za-z\s]+)?                          # Optional: suite, building, etc
+    #     \s+[A-Za-z\s]+,?                              # City
+    #     \s+(?:[A-Z]{2}|[A-Za-z]{4,})                  # State (e.g., FL or Florida)
+    #     (?:\s+\d{5}(?:-\d{4})?)?                      # Optional ZIP
+    #     ''',
+    #     text,
+    #     re.VERBOSE
+    # )
+
+    # print('address', address_matches)
+
+    # return {
+    #     "email": list(set(emails)),
+    #     "phone": list(set(phones)),
+    #     "address": list(set(address_matches))
+    # }
+    # Try to extract text from <footer>
+    footer_elements = tree.xpath('//footer')
+    text_sources = []
+
+    if footer_elements:
+        text_sources.append(footer_elements[0].text_content())
+    else:
+        # Check common footer containers
+        possible_footers = tree.xpath('//div[contains(translate(@class, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "footer")]')
+        if possible_footers:
+            text_sources.append(" ".join(el.text_content() for el in possible_footers))
+        else:
+            # Fallback: last few elements in <body>
+            last_elements = tree.xpath('//body//*[position() > last()-5]')
+            text_sources.append(" ".join(el.text_content() for el in last_elements))
+
+    # Merge and normalize text
+    full_text = " ".join(text_sources)
+    text = re.sub(r'\s+', ' ', full_text)
 
     # Extract email
     emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
 
-    # Extract phone (simplified)
+    # Extract phone numbers
     phones = re.findall(r'(\+?\d[\d\s\-\(\)]{7,}\d)', text)
 
-    # Extract address (very fuzzy heuristic)
-    address_matches = re.findall(
-        r'\d{1,5}\s+\w+(?:\s+\w+)*,?\s+\w+(?:\s+\w+)*,?\s+[A-Z]{2,3}\s+\d{4,6}',
-        text
+    address_pattern = re.compile(
+        r'\d{1,5}\s[\w\s.,#&-]+?,\s*[\w\s]+?,\s*'
+        r'(?:[A-Z]{2}|Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)'
+        r'(?:\s+\d{5})?',
+        re.IGNORECASE
     )
+
+
+    # Improved US-style address regex (very heuristic!)
+    address_matches = address_pattern.findall(text)
 
     return {
         "email": list(set(emails)),
         "phone": list(set(phones)),
-        "address": list(set(address_matches))
+        "address": list(address_matches)
     }
 
+
 def extract_address_details(address):
-    full_address = None
+    full_address = address
     street_address = None
     city = None
     state = None
     zip_code = None
 
     if address:
-        pattern = r'^(.*?),?\s+([\w\s]+),?\s+([A-Z]{2})\s+(\d{5})$'
-        match = re.match(pattern, address)
+        # Match with optional ZIP and full/abbreviated state
+        pattern = re.compile(
+            r'^(.*?),?\s+([\w\s]+),?\s+'
+            r'(?:'  # Start non-capturing group for state
+                r'(?P<state>[A-Z]{2})|'  # e.g., NJ
+                r'(?P<state_full>'
+                r'Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming'
+                r')'
+            r')'
+            r'(?:\s+(?P<zip>\d{5}))?$',  # Optional ZIP
+            re.IGNORECASE
+        )
+
+        match = pattern.match(address.strip())
 
         if match:
             street_address = match.group(1).strip()
             city = match.group(2).strip()
-            state = match.group(3)
-            zip_code = match.group(4)
+            state = match.group('state') or match.group('state_full')
+            zip_code = match.group('zip')
 
     return {
-        "full_address": address,
+        "full_address": full_address,
         "street_address": street_address,
         "city": city,
         "state": state,
         "zip_code": zip_code
     }
+
 
 def extact_fonts_colors_from_console(console_messages):
     def dedup(seq):
